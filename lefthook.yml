@@ -1,0 +1,19 @@
+pre-commit:
+  parallel: true
+  commands:
+    biome-check:
+      glob: "*.{ts,tsx,js,jsx,json,jsonc}"
+      run: npx @biomejs/biome check --write {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: yarn typecheck
+    trailing-whitespace:
+      glob: "*.{ts,tsx,js,jsx,json,yaml,yml,md}"
+      run: sed -i '' 's/[[:space:]]*$//' {staged_files}
+      stage_fixed: true
+    check-large-files:
+      run: |
+        git diff --cached --name-only --diff-filter=ACM | while read f; do
+          size=$(wc -c < "$f")
+          if [ "$size" -gt 1000000 ]; then echo "Large file: $f ($size bytes)"; exit 1; fi
+        done
