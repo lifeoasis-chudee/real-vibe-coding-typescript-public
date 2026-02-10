@@ -1,6 +1,6 @@
 # Claude Code task-specific plans (temporary, not tracked)
-# .claude/tasks/
-# .claude/tasks/archive/
+.claude/tasks/
+.claude/tasks/archive/
 
 # Keep the directory structure
 !.claude/tasks/.gitkeep
