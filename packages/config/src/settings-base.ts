@@ -51,7 +51,7 @@ interface LoadConfigOptions {
 /**
  * Load a config from environment variables.
  *
- * Helper method equivalent to Python's SettingsBase._load_config().
+ * Helper for loading a config from environment variables.
  *
  * @param schema - Zod schema for the config
  * @param options - Loading options

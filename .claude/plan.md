@@ -17,8 +17,8 @@
 ### Phase 1: Foundation (Current)
 - [x] Initialize project structure
 - [x] Set up `.claude/` memory system
-- [ ] Add basic test infrastructure
-- [ ] Create sample module with TDD
+- [x] Add basic test infrastructure (Vitest)
+- [x] Create sample modules with TDD (@my/config, @my/logger)
 
 ### Phase 2: Core Features
 - [ ] Implement main functionality
@@ -57,11 +57,11 @@
 ## Backlog
 
 ### High Priority
-- [ ] Add pytest configuration
-- [ ] Create first unit test
+- [x] Add Vitest configuration
+- [x] Create first unit tests
 
 ### Medium Priority
-- [ ] Add pre-commit hooks
+- [x] Add lefthook git hooks
 - [ ] Set up GitHub Actions
 
 ### Low Priority

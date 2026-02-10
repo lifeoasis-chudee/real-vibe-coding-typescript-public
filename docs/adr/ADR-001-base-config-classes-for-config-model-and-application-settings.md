@@ -1,4 +1,4 @@
-# ADR-001: Base Config Classes for Config Model and Application Settings
+# ADR-001: Zod-based Config Functions for Config Model and Application Settings
 
 ## Status
 
@@ -12,150 +12,147 @@ Accepted
 
 This project needs a configuration management system that meets the following requirements:
 
-1. **Framework Compatibility**: Configuration classes must work seamlessly with FastAPI (request/response models) and LangGraph (state classes)
-2. **Environment Variable Loading**: Support for loading configuration from environment variables and `.env` files
-3. **Type Safety**: Full Pydantic validation and type inference support
-4. **Sensitive Data Handling**: Ability to mask sensitive fields (passwords, API keys) in logs
-5. **Nested Configuration**: Support for hierarchical configuration structures
-6. **Code Reusability**: Eliminate duplication when loading domain-specific configs across multiple services
-
-Using a single configuration class (e.g., just `BaseSettings`) creates problems:
-- `BaseSettings` automatically loads from environment variables on instantiation, which breaks FastAPI/LangGraph compatibility
-- Mixing app-level settings with domain configs leads to tight coupling
-- Repeated boilerplate code for loading each domain config with the correct prefix
+1. **Type Safety**: Full Zod validation and TypeScript type inference
+2. **Environment Variable Loading**: Support for loading configuration from environment variables with prefix
+3. **Sensitive Data Handling**: Ability to mask sensitive fields (passwords, API keys) in logs
+4. **Extra Fields Support**: Handle unknown fields via Zod passthrough schemas
+5. **Code Reusability**: Eliminate duplication when loading domain-specific configs across multiple services
 
 ## Decision
 
-We implement a **two-type configuration system**:
+We implement a **function-based configuration system** using Zod schemas:
 
-### 1. ConfigBase (inherits from `pydantic.BaseModel`)
+### 1. fromEnv() - Domain Config Loading
 
 For domain-specific configurations (Redis, OpenAI, S3, Database, etc.)
 
-```python
-class ConfigBase(BaseModel):
-    model_config = ConfigDict(extra="allow", validate_assignment=True)
+```typescript
+import { z } from "zod";
+import { fromEnv } from "@my/config";
 
-    @classmethod
-    def from_env(cls, prefix: str, ...) -> T:
-        """Explicitly load from environment variables"""
+const RedisConfigSchema = z.object({
+  host: z.string().default("localhost"),
+  port: z.coerce.number().default(6379),
+  password: z.string().optional(),
+});
 
-    def get_printable_config(self) -> dict[str, Any]:
-        """Return config with sensitive fields masked"""
+// Explicitly load from environment variables
+const config = fromEnv(RedisConfigSchema, { prefix: "REDIS_" });
 ```
 
 Key characteristics:
-- Does NOT auto-load from environment variables
-- Requires explicit `from_env()` call to load from environment
-- Compatible with FastAPI request/response models
-- Compatible with LangGraph state classes
-- Supports extra fields (`extra="allow"`)
-- Supports nested models up to 3 levels deep
+- Does NOT auto-load from environment variables - requires explicit `fromEnv()` call
+- Uses Zod schemas for validation and type inference
+- Supports prefix-based env var namespacing
+- Keys are lowercased and prefix is stripped
 
-### 2. SettingsBase (inherits from `pydantic_settings.BaseSettings`)
+### 2. createSettings() - App-Level Settings
 
 For application-level settings that orchestrate domain configs
 
-```python
-class SettingsBase(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+```typescript
+import { z } from "zod";
+import { createSettings, loadConfig } from "@my/config";
 
-    def _load_config(self, config_class: type[T], prefix: str) -> T:
-        """Helper to load ConfigBase instances with consistent env_file"""
+const SettingsSchema = z.object({
+  app_name: z.string().default("my-app"),
+  worker_slots: z.coerce.number().default(5),
+});
+
+const settings = createSettings(SettingsSchema);
+// settings.config.app_name, settings.envFile, settings.caseSensitive
 ```
 
-Key characteristics:
-- Auto-loads from `.env` file and environment variables
-- Provides default `model_config` for all services
-- `_load_config()` helper eliminates duplication when loading domain configs
-- Single source of truth for `env_file` setting
+### 3. Helper Functions
+
+```typescript
+import { getPrintableConfig, getExtraConfigs } from "@my/config";
+
+// Mask sensitive fields for logging
+const printable = getPrintableConfig(config);
+// { host: "localhost", password: "se...23" }
+
+// Extract extra fields from passthrough schemas
+const extras = getExtraConfigs(config, RedisConfigSchema);
+```
 
 ### Usage Pattern
 
-```python
-class RedisConfig(ConfigBase):
-    host: str = "localhost"
-    port: int = 6379
+```typescript
+import { z } from "zod";
+import { loadConfig, getPrintableConfig } from "@my/config";
 
-class OpenAIConfig(ConfigBase):
-    api_key: str
-    model: str = "gpt-4"
+const RedisConfigSchema = z.object({
+  host: z.string().default("localhost"),
+  port: z.coerce.number().default(6379),
+});
 
-class Settings(SettingsBase):
-    worker_slots: int = 5
+const OpenAIConfigSchema = z.object({
+  api_key: z.string(),
+  model: z.string().default("gpt-4"),
+});
 
-    @cached_property
-    def redis(self) -> RedisConfig:
-        return self._load_config(RedisConfig, prefix="REDIS_")
-
-    @cached_property
-    def openai(self) -> OpenAIConfig:
-        return self._load_config(OpenAIConfig, prefix="OPENAI_")
+// Load domain configs with prefix
+const redis = loadConfig(RedisConfigSchema, { prefix: "REDIS_" });
+const openai = loadConfig(OpenAIConfigSchema, { prefix: "OPENAI_" });
 ```
 
 ## Rationale
 
-### Why separate ConfigBase from SettingsBase?
+### Why function-based instead of class-based?
 
-1. **Separation of Concerns**
-   - `SettingsBase`: Application lifecycle (when to load, which env file)
-   - `ConfigBase`: Domain knowledge (what fields, validation rules)
+1. **Simplicity**: Plain functions + Zod schemas are simpler than class hierarchies
+2. **Composability**: Functions compose better than class inheritance
+3. **TypeScript Idiomatic**: Zod schemas with `z.infer<T>` provide excellent type inference
+4. **Tree-shakeable**: Functions can be individually imported
+5. **Testing Friendly**: No class instantiation needed; just pass env vars
 
-2. **Framework Compatibility**
-   - `BaseSettings` auto-loads on instantiation, breaking FastAPI/LangGraph
-   - `BaseModel` requires explicit loading, preserving framework compatibility
+### Why Zod?
 
-3. **Explicit is Better than Implicit**
-   - Environment loading happens only when explicitly requested via `from_env()`
-   - No hidden side effects during class instantiation
-
-4. **Code Reuse**
-   - `_load_config()` helper in SettingsBase eliminates repeated boilerplate
-   - Consistent `env_file` handling across all domain configs
+1. **TypeScript-first**: Schema inference generates types automatically
+2. **Runtime Validation**: Validates at runtime, not just compile-time
+3. **Coercion Support**: `z.coerce.number()` handles string-to-number from env vars
+4. **Composable**: `.passthrough()`, `.default()`, `.transform()` chain cleanly
+5. **Already in Stack**: Zod is a project dependency
 
 ## Alternatives Considered
 
-### Single BaseSettings-based Configuration
+### Class-based Configuration (Pydantic-style)
 
-- Pros: Simpler, fewer classes
-- Cons: Breaks FastAPI/LangGraph compatibility, auto-loading side effects
-- Why rejected: Framework compatibility is a hard requirement
-
-### Dynaconf or python-dotenv Direct Usage
-
-- Pros: Well-established libraries
-- Cons: No Pydantic validation, less type safety, no IDE support
-- Why rejected: Type safety and IDE support are essential for maintainability
+- Pros: Familiar OOP pattern, auto-loading via inheritance
+- Cons: Heavier abstraction, less TypeScript-idiomatic, class hierarchies add complexity
+- Why rejected: Function-based approach is simpler and more aligned with TypeScript patterns
 
 ### Environment-only Configuration (No .env Files)
 
 - Pros: Simpler, follows 12-factor app principles strictly
-- Cons: Poor developer experience, hard to manage local development
+- Cons: Poor developer experience for local development
 - Why rejected: Developer experience matters; `.env` files are standard practice
+
+### io-ts or Arktype
+
+- Pros: Also TypeScript-first validation libraries
+- Cons: Smaller ecosystem, less community support
+- Why rejected: Zod has the largest ecosystem and best TypeScript integration
 
 ## Consequences
 
 ### Positive
 
-- Full FastAPI and LangGraph compatibility maintained
-- Type-safe configuration with IDE autocomplete
+- Full TypeScript type safety with Zod schema inference
+- Simple, composable function-based API
 - Sensitive fields automatically masked in logs
-- Consistent loading pattern across all services
-- Nested configuration support up to 3 levels
-- Extra fields supported for flexibility
+- Consistent loading pattern across all configs
+- Extra fields supported via passthrough schemas
+- Testing friendly - no env setup needed with defaults
 
 ### Negative
 
-- Two classes to understand instead of one
-- Slightly more boilerplate for simple use cases
-- Developers must remember to use `from_env()` explicitly
+- No auto-loading; must explicitly call `fromEnv()` (deliberate trade-off)
+- Env vars are always strings; need coercion for numbers/booleans
+- No nested model support (flat key-value mapping only)
 
 ### Risks
 
-- Future Pydantic major version changes may require updates
-- Nested configuration depth limit (3 levels) may need adjustment for complex configs
+- Future Zod major version changes may require updates
+- Large numbers of env vars with same prefix could conflict

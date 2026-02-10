@@ -2,46 +2,56 @@
 
 ## Overview
 
-This project uses [uv](https://github.com/astral-sh/uv) for Python dependency management with workspace monorepo structure.
+This project uses [Yarn v4](https://yarnpkg.com/) (Berry) for Node.js dependency management with workspace monorepo structure.
 
 ## Project Structure
 
 ```
 real-vibe-coding/
-├── pyproject.toml           # Root workspace config (versions, tools)
-├── uv.lock                  # Unified lockfile (committed)
+├── package.json             # Root workspace config
+├── .yarnrc.yml              # Yarn configuration
+├── yarn.lock                # Unified lockfile (committed)
+├── tsconfig.json            # Root TypeScript config (project references)
+├── biome.json               # Linting and formatting config
+├── lefthook.yml             # Git hooks config
+├── vitest.config.ts         # Root test config
 ├── Makefile                 # Build and test commands
-├── config/
-│   ├── pyproject.toml       # Module config
-│   ├── src/my_config/
-│   └── tests/
-└── logger/
-    ├── pyproject.toml
-    └── src/my_logger/
+├── packages/
+│   ├── config/
+│   │   ├── package.json
+│   │   ├── tsconfig.json
+│   │   ├── tsup.config.ts
+│   │   ├── src/
+│   │   └── tests/
+│   └── logger/
+│       ├── package.json
+│       ├── tsconfig.json
+│       ├── tsup.config.ts
+│       ├── src/
+│       └── tests/
 ```
 
 ## Workspace Member Structure
 
 Each workspace member follows this pattern:
 ```
-<member>/
-├── pyproject.toml           # Member config with dependencies
+packages/<member>/
+├── package.json             # Member config with dependencies
+├── tsconfig.json            # TypeScript config with project references
+├── tsup.config.ts           # Build config (esbuild-based)
 ├── src/
-│   └── <package_name>/      # Importable package (my_config, my_logger, etc.)
-│       ├── __init__.py
-│       └── *.py
+│   ├── index.ts             # Public exports
+│   └── *.ts                 # Source files
 └── tests/
-    ├── __init__.py
-    ├── unit/                # Optional: unit tests
-    └── integration/         # Optional: integration tests
+    └── *.test.ts            # Vitest test files
 ```
 
 ## Key Principles
 
-- **Root defines versions**: All library versions in `constraint-dependencies`
-- **Sub-modules reference names only**: Just `"pydantic"`, not `"pydantic>=2.0.0"`
-- **Shared tool config**: ruff/mypy rules in root `pyproject.toml`
-- **Module-specific tests**: pytest config in each module's `pyproject.toml`
-- **Build system**: Sub-modules use `uv_build`, root has `package = false`
-- **Package naming**: Use `my_` prefix convention (e.g., `my_config`, `my_logger`)
-- **Inter-package deps**: Use `workspace = true` in `tool.uv.sources`
+- **Root defines dev dependencies**: TypeScript, Biome, Vitest, tsup in root
+- **Sub-modules declare runtime deps**: Only what each package needs
+- **Shared tool config**: Biome and TypeScript rules in root
+- **Module-specific tests**: Each package has its own tests/ directory
+- **Build system**: Sub-modules use tsup for ESM output with declarations
+- **Package naming**: Use `@my/` scope convention (e.g., `@my/config`, `@my/logger`)
+- **Inter-package deps**: Use `workspace:*` protocol in dependencies
